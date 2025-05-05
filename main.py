@@ -71,8 +71,35 @@ def multi_scale_template_matching(img, template, scale_range=(0.5, 3.0), scale_s
 
     # Get template dimensions
     h, w = template.shape[:2]
+    print("Template shape:", template.shape)
+    for scale in np.linspace(scale_range[0], scale_range[1], scale_steps):
+        # Resize the template
+        resized_template = cv2.resize(template_gray, (int(w * scale), int(h * scale)))
+
+        # Skip if template is larger than image
+        if resized_template.shape[0] > img_gray.shape[0] or resized_template.shape[1] > img_gray.shape[1]:
+            continue
+
+        # Apply template matching
+        result = cv2.matchTemplate(img_gray, resized_template, cv2.TM_CCOEFF_NORMED)
+        _, max_val, _, max_loc = cv2.minMaxLoc(result)
+
+        if max_val > best_score:
+            best_score = max_val
+            best_loc = max_loc
+            best_template_shape = resized_template.shape[:2]
+            best_scale = scale
+
+    if best_loc is None:
+        return None  # No matches found
+
+    # Extract dimensions of the best matched template
+    h, w = best_template_shape
+
     # Calculate the bottom-right corner of the matched region
+    top_left = best_loc
     bottom_right = (top_left[0] + w, top_left[1] + h)
+
     # Crop the matched region
     cropped_img = img[top_left[1]:bottom_right[1], top_left[0]:bottom_right[0]]
 
@@ -255,9 +282,9 @@ def path_to_instructions(path, pixel_to_meter=0.04):
                 total_distance = 0  # Reset for the next straight segment
             
             if (current_direction - new_direction) % 4 == 1:
-                instructions += "Turn right. "
-            elif (current_direction - new_direction) % 4 == 3:
                 instructions += "Turn left. "
+            elif (current_direction - new_direction) % 4 == 3:
+                instructions += "Turn right. "
                 
             current_direction = new_direction
             
@@ -324,14 +351,15 @@ def run_all_processes(img, template, model2, model):
         print("No valid target coordinates found.")
         return "No valid target coordinates found."
 
-    if target_coordinates[0].size > 0:
-        end = (target_coordinates[0][0], target_coordinates[1][0])
-        path = find_path_astar(grid, start, end)
-        if path:
+        if target_coordinates[0].size > 0:
+            end = (target_coordinates[0][0], target_coordinates[1][0])
+            path = find_path_astar(grid, start, end)
+            display_path_on_grid(grid, path)
+            if path:
                 instructions = path_to_instructions(path, 0.04)
-            return instructions
+                return instructions
     
-    return None
+        return None
 
 
 class ParkingApp(App):
@@ -455,17 +483,18 @@ class ParkingApp(App):
                 texture = Texture.create(size=(frame.shape[1], frame.shape[0]), colorfmt='rgb')
                 texture.blit_buffer(buf.flatten(), colorfmt='rgb', bufferfmt='ubyte')
                 self.video_widget.texture = texture
-                
+
                 # Save current frame for processing
                 self.current_frame = frame
-                
+
                 # Schedule next frame update (aiming for real-time playback)
                 self.clock_event = Clock.schedule_once(self.update_video_frame, 1/30)  # ~30 FPS
             else:
                 # Handle end of video or error
                 self.video_source.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Loop back to start
                 self.clock_event = Clock.schedule_once(self.update_video_frame, 1/30)
-    
+
+                
     def toggle_playback(self, instance):
         if self.video_source:
             self.is_playing = not self.is_playing
@@ -558,3 +587,6 @@ class ParkingApp(App):
             self.clock_event.cancel()
         if hasattr(self, 'video_source') and self.video_source:
             self.video_source.release()
+
+if __name__ == "__main__":
+    ParkingApp().run()
