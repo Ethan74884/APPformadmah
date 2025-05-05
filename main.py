@@ -474,9 +474,10 @@ class ParkingApp(App):
     def update_video_frame(self, dt=None):
         if self.video_source and self.is_playing:
             ret, frame = self.video_source.read()
-            # Rotate the frame 90 degrees clockwise for tall videos
-            if frame.shape[0] < frame.shape[1]:  # Check if the video is taller than it is wide
-                frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+            if ret:
+                # Rotate the frame 90 degrees clockwise for tall videos
+                if frame.shape[0] < frame.shape[1]:  # Check if the video is taller than it is wide
+                    frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
                 # Convert the frame to texture for display
                 buf = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 buf = cv2.flip(buf, 0)  # Flip the frame vertically
