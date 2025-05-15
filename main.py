@@ -298,6 +298,51 @@ def path_to_instructions(path, pixel_to_meter=0.04):
     return instructions
 
 
+def display_path_on_image(image, path, grid_size):
+    """
+    Overlays the path on the cropped parking lot image.
+    
+    Args:
+        image: The cropped image as a numpy array.
+        path: A list of tuples representing the path in grid coordinates.
+        grid_size: The size of the grid (rows, cols) used in pathfinding.
+    
+    Returns:
+        The image with overlaid path.
+    """
+    # Create a copy of the image to draw on
+    overlay_image = image.copy()
+    
+    if not path:
+        return overlay_image
+    
+    # Calculate cell dimensions
+    img_height, img_width = image.shape[:2]
+    cell_height = img_height / grid_size[0]
+    cell_width = img_width / grid_size[1]
+    
+    # Convert grid path to pixel coordinates
+    pixel_path = []
+    for grid_y, grid_x in path:
+        # Calculate center of the corresponding cell in pixel coordinates
+        px = int((grid_x + 0.5) * cell_width)
+        py = int((grid_y + 0.5) * cell_height)
+        pixel_path.append((px, py))
+    
+    # Draw the path as a line
+    for i in range(1, len(pixel_path)):
+        cv2.line(overlay_image, pixel_path[i-1], pixel_path[i], (0, 0, 255), 2)
+    
+    # Draw start and end points
+    if len(pixel_path) > 0:
+        # Start point (green)
+        cv2.circle(overlay_image, pixel_path[0], 5, (0, 255, 0), -1)
+        # End point (blue) - destination parking spot
+        cv2.circle(overlay_image, pixel_path[-1], 5, (255, 0, 0), -1)
+    
+    return overlay_image
+
+
 def run_all_processes(img, template, model2, model):
     """Main function to run all parking analysis processes"""
     transform = transforms.Compose([
@@ -343,13 +388,14 @@ def run_all_processes(img, template, model2, model):
         #display_path_on_grid(grid, path)
         if path:
             instructions = path_to_instructions(path, 0.04)
-            return instructions
+            path_visualization = display_path_on_image(cropped_img, path, grid_size)
+            return instructions, path_visualization 
         else:
             print("No path could be found to the target.")
-            return "No path could be found to the target."
+            return "No path could be found to the target.", cropped_img
     else:
         print("No valid target coordinates found.")
-        return "No valid target coordinates found."
+        return "No valid target coordinates found.", cropped_img
 
         if target_coordinates[0].size > 0:
             end = (target_coordinates[0][0], target_coordinates[1][0])
@@ -357,7 +403,8 @@ def run_all_processes(img, template, model2, model):
             display_path_on_grid(grid, path)
             if path:
                 instructions = path_to_instructions(path, 0.04)
-                return instructions
+                path_visualization = display_path_on_image(cropped_img, path, grid_size)
+                return instructions, path_visualization
     
         return None
 
@@ -569,15 +616,29 @@ class ParkingApp(App):
                 model = model.cuda()
             else:
                 model.load_state_dict(torch.load(model_state_path, map_location=torch.device('cpu')))
-            model.eval()
             
             # Process the captured frame
             self.instructions_label.text = "Processing frame..."
-            instructions = run_all_processes(self.captured_frame, template, model2, model)
-            if instructions:
+            result = run_all_processes(self.captured_frame, template, model2, model)
+        
+            # Unpack the result
+            if isinstance(result, tuple) and len(result) == 2:
+                instructions, visualization = result
+                
+                # Display the visualization if available
+                if visualization is not None:
+                    # Display the visualization with the path overlay
+                    buf = cv2.cvtColor(visualization, cv2.COLOR_BGR2RGB)
+                    buf = cv2.flip(buf, 0)  # Flip the frame vertically for Kivy
+                    texture = Texture.create(size=(buf.shape[1], buf.shape[0]), colorfmt='rgb')
+                    texture.blit_buffer(buf.flatten(), colorfmt='rgb', bufferfmt='ubyte')
+                    self.image_widget.texture = texture
+            
+                # Display instructions
                 self.instructions_label.text = instructions
             else:
-                self.instructions_label.text = "No available parking spots found"
+                # For backward compatibility in case run_all_processes doesn't return a tuple
+                self.instructions_label.text = str(result)
         
         except Exception as e:
             self.instructions_label.text = f"Error processing frame: {str(e)}"
